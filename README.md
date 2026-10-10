@@ -1,4 +1,4 @@
-# Bond Pricing, Yield and Sensitivities
+# Mini Corporate Bond Pricer (Bond Pricing, Yield and Sensitivities)
 
 A compact Python project illustrating the basic mechanics of fixed-income pricing and credit-risk-sensitive bond valuation.
 
