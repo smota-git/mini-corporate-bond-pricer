@@ -20,34 +20,40 @@ The project is intentionally simplified so that the relationships between these 
 
 The bond is defined by:
 
-- **face value** $F$ — principal repaid at maturity,
-- **coupon rate** $c$,
-- **maturity** $T$,
-- **risk-free rate** $r_f$,
-- **credit spread** $s$.
+- **face value** F — principal repaid at maturity,
+- **coupon rate** c,
+- **maturity** T,
+- **risk-free rate** r_f,
+- **credit spread** s.
 
 The annual coupon is
 
-$$
+
+```text
 C = cF.
-$$
+```
+
 
 In this simplified model, the discount yield is
 
-$$
+
+```text
 y = r_f + s.
-$$
+```
+
 
 The bond's calculated model price is the present value of all contractual future cash flows:
 
-$$
-P_{model}
+
+```text
+P_{model
 =
-\sum_{t=1}^{T-1}
-\frac{C}{(1+y)^t}
+sum_{t=1^{T-1
+frac{C{(1+y)^t
 +
-\frac{C+F}{(1+y)^T}.
-$$
+frac{C+F{(1+y)^T.
+```
+
 
 The project assumes annual coupons, a constant risk-free rate, a constant credit spread and a flat yield across maturities. It therefore does **not** represent a full market yield curve or term structure.
 
@@ -67,9 +73,11 @@ The **model price** is the present value of the bond's future contractual cash f
 
 In this project:
 
-$$
-P_{model} = PV(\text{future cash flows}).
-$$
+
+```text
+P_{model = PV(future cash flows).
+```
+
 
 The terms **model price**, **calculated bond price** and **present value (PV)** therefore refer to the same quantity.
 
@@ -83,9 +91,11 @@ It is an input to the inverse pricing problem and does not have to equal the mod
 
 The model yield is defined here as
 
-$$
+
+```text
 y = r_f + s.
-$$
+```
+
 
 This is a deliberate simplification.
 
@@ -93,9 +103,11 @@ This is a deliberate simplification.
 
 The **implied yield** is the yield that makes the present value of the contractual cash flows equal to a specified market price:
 
-$$
-P_{model}(y) = P_{market}.
-$$
+
+```text
+P_{model(y) = P_{market.
+```
+
 
 For a coupon bond, this yield is generally solved numerically. The script uses Brent's root-finding method.
 
@@ -113,9 +125,11 @@ The function `bond_price()` calculates the model price from:
 
 Because the model uses
 
-$$
+
+```text
 y = r_f + s,
-$$
+```
+
 
 an increase in either the risk-free rate or the credit spread increases the required yield and reduces the present value of the same future cash flows.
 
@@ -123,9 +137,11 @@ an increase in either the risk-free rate or the credit spread increases the requ
 
 The function `yield_from_price()` solves
 
-$$
-P_{model}(y) - P_{market} = 0.
-$$
+
+```text
+P_{model(y) - P_{market = 0.
+```
+
 
 The numerical solution is obtained using `scipy.optimize.brentq`.
 
@@ -138,27 +154,33 @@ This is the inverse of the usual pricing problem:
 
 The script estimates price sensitivity numerically using a small yield increase:
 
-$$
-\frac{\partial P}{\partial y}
-\approx
-\frac{P(y+\Delta y)-P(y)}{\Delta y}.
-$$
+
+```text
+frac{d P{d y
+≈
+frac{P(y+Delta y)-P(y){Delta y.
+```
+
 
 For
 
-$$
-\Delta y = 1\text{ bp} = 0.0001,
-$$
+
+```text
+Delta y = 1 bp = 0.0001,
+```
+
 
 the script converts this sensitivity into DV01:
 
-$$
+
+```text
 DV01
-\approx
+≈
 -
-\frac{\partial P}{\partial y}
-\times 0.0001.
-$$
+frac{d P{d y
+* 0.0001.
+```
+
 
 DV01 therefore represents the approximate **absolute change in bond price caused by a 1 basis point increase in yield**.
 
@@ -177,19 +199,23 @@ Only the credit spread changes.
 
 Because
 
-$$
+
+```text
 y = r_f + s,
-$$
+```
+
 
 a wider spread increases the discount yield and lowers the present value of the same contractual cash flows:
 
-$$
-s \uparrow
-\Rightarrow
-y \uparrow
-\Rightarrow
-P_{model} \downarrow.
-$$
+
+```text
+s ↑
+->
+y ↑
+->
+P_{model ↓.
+```
+
 
 This figure therefore shows the sensitivity of the calculated bond value to credit-spread changes.
 
@@ -208,9 +234,11 @@ The graph compares three separate coupon-rate scenarios:
 
 The model yield is held constant at
 
-$$
-3\% + 2\% = 5\%.
-$$
+
+```text
+3% + 2% = 5%.
+```
+
 
 This gives three characteristic cases:
 
@@ -237,19 +265,23 @@ The bond itself is kept fixed:
 
 The script then considers a range of hypothetical market prices and solves a separate inverse pricing problem for each price:
 
-$$
-P_{model}(y) = P_{market}.
-$$
+
+```text
+P_{model(y) = P_{market.
+```
+
 
 The resulting curve shows that a higher market price for the same contractual cash flows implies a lower yield.
 
 This figure should therefore be read as
 
-$$
-P_{market}
-\longrightarrow
-y_{implied},
-$$
+
+```text
+P_{market
+->
+y_{implied,
+```
+
 
 not as a direct model of how market prices are formed.
 
@@ -262,9 +294,11 @@ For each maturity from 1 to 20 years, the script creates a bond with the same fa
 
 The graph therefore shows
 
-$$
-T \longrightarrow DV01.
-$$
+
+```text
+maturity -> DV01
+```
+
 
 Longer-maturity bonds are generally more sensitive to small yield changes because a larger share of their cash flows lies further in the future.
 
@@ -323,20 +357,22 @@ python bond.py
 
 The project connects the following concepts in one workflow:
 
-$$
-\text{cash flows}
-\rightarrow
-\text{discounting}
-\rightarrow
-\text{model yield}
-\rightarrow
-\text{present value}
-\rightarrow
-\text{market price}
-\rightarrow
-\text{implied yield}
-\rightarrow
-\text{sensitivity / DV01}.
-$$
+
+```text
+cash flows
+rightarrow
+discounting
+rightarrow
+model yield
+rightarrow
+present value
+rightarrow
+market price
+rightarrow
+implied yield
+rightarrow
+sensitivity / DV01.
+```
+
 
 The main purpose is not to reproduce a production-grade fixed-income system, but to make the relationships between price, yield, spread and sensitivity explicit and numerically testable.
