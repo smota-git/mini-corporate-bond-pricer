@@ -20,7 +20,7 @@ The project is intentionally simplified so that the relationships between these 
 
 The bond is defined by:
 
-- **face value** `F` — principal repaid at maturity,
+- **face value** `$$F$$` — principal repaid at maturity,
 - **coupon rate** `c`,
 - **maturity** `T`,
 - **risk-free rate** `r_f`,
