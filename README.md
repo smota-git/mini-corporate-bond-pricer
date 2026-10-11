@@ -24,7 +24,7 @@ The bond is defined by:
 - **coupon rate** $c$,
 - **maturity** $T$,
 - **risk-free rate**
-- ```bash
+  ```bash
   r_f,
   ```
 - **credit spread** $s$.
