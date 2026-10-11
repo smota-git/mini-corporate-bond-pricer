@@ -25,8 +25,8 @@ The bond is defined by:
 - **maturity** $T$,
 - **risk-free rate**
 - ```bash
-  r_f
-  ```,
+  r_f,
+  ```
 - **credit spread** $s$.
 
 The annual coupon is
