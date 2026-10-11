@@ -167,7 +167,9 @@ The graph compares three separate coupon-rate scenarios:
 
 The model yield is held constant at
 
-$$3\% + 2\% = 5\%.$$
+$$
+3\% + 2\% = 5\%.
+$$
 
 This gives three characteristic cases:
 
