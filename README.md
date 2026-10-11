@@ -23,10 +23,7 @@ The bond is defined by:
 - **face value** $F$ — principal repaid at maturity,
 - **coupon rate** $c$,
 - **maturity** $T$,
-- **risk-free rate**
-  ```bash
-  r_f,
-  ```
+- **risk-free rate** $r_f$,
 - **credit spread** $s$.
 
 The annual coupon is
