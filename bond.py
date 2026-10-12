@@ -1,494 +1,463 @@
+from dataclasses import dataclass
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.optimize import brentq
 
 
 # ============================================================
-# Mini-project: Bond pricing, yield and sensitivities
+# Corporate Bond Pricing and Risk Analytics
 #
-# Cíl:
-# - spočítat cenu fixně úročeného dluhopisu z jeho cash flows
-# - ukázat vliv risk-free rate a credit spreadu na cenu
-# - numericky dopočítat implied yield z tržní ceny
-# - ukázat citlivost ceny na malou změnu yieldu
+# Features:
+# - fixed-rate bond pricing from cash flows
+# - optional interactive input with sensible defaults
+# - risk-free rate + credit spread decomposition
+# - implied yield from market price
+# - Macaulay duration
+# - modified duration
+# - convexity
+# - DV01 and CS01
+# - scenario analysis and diagnostic plots
 #
-# Zjednodušení:
-# - roční kupóny
-# - konstantní risk-free rate
-# - konstantní credit spread
+# Simplifications:
+# - annual coupons
+# - constant risk-free rate
+# - constant credit spread
 # - yield = risk-free rate + credit spread
-# - nepoužíváme plnou yield curve / term structure
+# - flat yield curve / no term structure
+# - no explicit default/recovery model yet
 # ============================================================
 
 
-# ----------------------------
-# Parametry dluhopisu
-# ----------------------------
-
-FACE_VALUE = 100.0          # jistina vyplacená při splatnosti
-COUPON_RATE = 0.05          # roční kupón = 5 % z face value
-MATURITY = 5                # splatnost v letech
-
-RISK_FREE_RATE = 0.03
-CREDIT_SPREAD = 0.02
+@dataclass
+class BondParams:
+    face_value: float = 100.0
+    coupon_rate: float = 0.05
+    maturity: int = 5
+    risk_free_rate: float = 0.03
+    credit_spread: float = 0.02
+    market_price: float = 95.0
 
 
-# ----------------------------
-# Model price (present value) from risk-free rate and credit spread
-# ----------------------------
-#
-# Celkový požadovaný yield zjednodušeně modelujeme jako:
-#
-# yield = risk-free rate + credit spread
-#
-# Cena dluhopisu je současná hodnota:
-# - všech budoucích kupónů
-# - splacené jistiny při maturity
-#
+# ============================================================
+# Input helpers
+# ============================================================
 
-def bond_price(
-    face_value,
-    coupon_rate,
-    maturity,
-    risk_free_rate,
-    credit_spread
-):
+def _read_float(prompt: str, default: float) -> float:
+    raw = input(f"{prompt} [{default}]: ").strip()
+    if raw == "":
+        return default
+    return float(raw)
 
-    yield_rate = risk_free_rate + credit_spread
+
+def _read_percent(prompt: str, default_decimal: float) -> float:
+    default_percent = 100.0 * default_decimal
+    raw = input(f"{prompt} [%] [{default_percent:g}]: ").strip()
+    if raw == "":
+        return default_decimal
+    return float(raw) / 100.0
+
+
+def _read_int(prompt: str, default: int) -> int:
+    raw = input(f"{prompt} [{default}]: ").strip()
+    if raw == "":
+        return default
+    value = int(raw)
+    if value <= 0:
+        raise ValueError("Maturity must be a positive integer.")
+    return value
+
+
+def get_user_inputs(defaults: BondParams | None = None) -> BondParams:
+    """Ask whether to use defaults; blank entries keep displayed defaults."""
+    p = defaults or BondParams()
+
+    use_defaults = input("Use default parameters? [Y/n]: ").strip().lower()
+    if use_defaults in ("", "y", "yes"):
+        return p
+
+    print("\nPress Enter at any prompt to keep the value shown in brackets.\n")
+
+    return BondParams(
+        face_value=_read_float("Face value", p.face_value),
+        coupon_rate=_read_percent("Coupon rate", p.coupon_rate),
+        maturity=_read_int("Maturity [years]", p.maturity),
+        risk_free_rate=_read_percent("Risk-free rate", p.risk_free_rate),
+        credit_spread=_read_percent("Credit spread", p.credit_spread),
+        market_price=_read_float("Market price", p.market_price),
+    )
+
+
+# ============================================================
+# Core pricing functions
+# ============================================================
+
+def cash_flows(face_value: float, coupon_rate: float, maturity: int) -> np.ndarray:
+    """Return annual contractual cash flows."""
     coupon = face_value * coupon_rate
-    price = 0.0
+    flows = np.full(maturity, coupon, dtype=float)
+    flows[-1] += face_value
+    return flows
 
-    for t in range(1, maturity + 1):
-
-        cash_flow = coupon
-
-        if t == maturity:
-            cash_flow += face_value
-
-        present_value = cash_flow / (1 + yield_rate) ** t
-        price += present_value
-
-    return price
-
-
-# ----------------------------
-# Model price (present value) directly from a specified yield
-# ----------------------------
-#
-# Tato funkce je užitečná pro:
-# - výpočet sensitivity
-# - numerické hledání implied yieldu
-#
 
 def bond_price_from_yield(
-    face_value,
-    coupon_rate,
-    maturity,
-    yield_rate
-):
-
-    coupon = face_value * coupon_rate
-    price = 0.0
-
-    for t in range(1, maturity + 1):
-
-        cash_flow = coupon
-
-        if t == maturity:
-            cash_flow += face_value
-
-        price += cash_flow / (1 + yield_rate) ** t
-
-    return price
+    face_value: float,
+    coupon_rate: float,
+    maturity: int,
+    yield_rate: float,
+) -> float:
+    """Present value of all contractual cash flows at one flat yield."""
+    flows = cash_flows(face_value, coupon_rate, maturity)
+    times = np.arange(1, maturity + 1, dtype=float)
+    discount = (1.0 + yield_rate) ** times
+    return float(np.sum(flows / discount))
 
 
-# ----------------------------
-# Implied yield z tržní ceny
-# ----------------------------
-#
-# Známe market price a hledáme yield takový, aby:
-#
-# calculated bond price = market price
-#
-# Tedy hledáme kořen rovnice:
-#
-# bond_price(yield) - market_price = 0
-#
-# Použijeme Brentovu metodu.
-#
+def bond_price(
+    face_value: float,
+    coupon_rate: float,
+    maturity: int,
+    risk_free_rate: float,
+    credit_spread: float,
+) -> float:
+    """Simplified corporate bond price with yield = risk-free + credit spread."""
+    yield_rate = risk_free_rate + credit_spread
+    return bond_price_from_yield(face_value, coupon_rate, maturity, yield_rate)
+
 
 def yield_from_price(
-    market_price,
-    face_value,
-    coupon_rate,
-    maturity
-):
+    market_price: float,
+    face_value: float,
+    coupon_rate: float,
+    maturity: int,
+) -> float:
+    """Solve for the yield that reproduces the observed market price."""
 
-    def price_difference(yield_rate):
-
+    def price_difference(yield_rate: float) -> float:
         return (
-            bond_price_from_yield(
-                face_value,
-                coupon_rate,
-                maturity,
-                yield_rate
-            )
+            bond_price_from_yield(face_value, coupon_rate, maturity, yield_rate)
             - market_price
         )
 
-    yield_rate = brentq(
-        price_difference,
-        -0.9,
-        1.0
+    return float(brentq(price_difference, -0.90, 5.0))
+
+
+# ============================================================
+# Interest-rate and spread risk analytics
+# ============================================================
+
+def macaulay_duration(
+    face_value: float,
+    coupon_rate: float,
+    maturity: int,
+    yield_rate: float,
+) -> float:
+    """Weighted average time to receive discounted cash flows."""
+    flows = cash_flows(face_value, coupon_rate, maturity)
+    times = np.arange(1, maturity + 1, dtype=float)
+    pv = flows / (1.0 + yield_rate) ** times
+    price = np.sum(pv)
+    return float(np.sum(times * pv) / price)
+
+
+def modified_duration(
+    face_value: float,
+    coupon_rate: float,
+    maturity: int,
+    yield_rate: float,
+) -> float:
+    """Approximate percentage price sensitivity to a small yield change."""
+    mac = macaulay_duration(face_value, coupon_rate, maturity, yield_rate)
+    return mac / (1.0 + yield_rate)
+
+
+def convexity(
+    face_value: float,
+    coupon_rate: float,
+    maturity: int,
+    yield_rate: float,
+) -> float:
+    """Annual-pay bond convexity under discrete compounding."""
+    flows = cash_flows(face_value, coupon_rate, maturity)
+    times = np.arange(1, maturity + 1, dtype=float)
+    price = bond_price_from_yield(face_value, coupon_rate, maturity, yield_rate)
+
+    numerator = np.sum(
+        flows * times * (times + 1.0)
+        / (1.0 + yield_rate) ** (times + 2.0)
+    )
+    return float(numerator / price)
+
+
+def dv01(
+    face_value: float,
+    coupon_rate: float,
+    maturity: int,
+    yield_rate: float,
+) -> float:
+    """Approximate price loss for a +1 bp parallel yield increase."""
+    price = bond_price_from_yield(face_value, coupon_rate, maturity, yield_rate)
+    mod_dur = modified_duration(face_value, coupon_rate, maturity, yield_rate)
+    return float(price * mod_dur * 0.0001)
+
+
+def cs01(
+    face_value: float,
+    coupon_rate: float,
+    maturity: int,
+    risk_free_rate: float,
+    credit_spread: float,
+) -> float:
+    """Price loss for a +1 bp widening of credit spread."""
+    h = 0.0001
+    p0 = bond_price(
+        face_value, coupon_rate, maturity, risk_free_rate, credit_spread
+    )
+    p1 = bond_price(
+        face_value, coupon_rate, maturity, risk_free_rate, credit_spread + h
+    )
+    return float(p0 - p1)
+
+
+def duration_convexity_price_change(
+    price: float,
+    modified_duration_value: float,
+    convexity_value: float,
+    delta_yield: float,
+) -> float:
+    """Approximate absolute price change using duration + convexity."""
+    relative_change = (
+        -modified_duration_value * delta_yield
+        + 0.5 * convexity_value * delta_yield**2
+    )
+    return float(price * relative_change)
+
+
+# ============================================================
+# Scenario analysis
+# ============================================================
+
+def scenario_table(p: BondParams) -> list[tuple[str, float, float, float]]:
+    """Return scenario name, risk-free rate, spread and resulting price."""
+    scenarios = [
+        ("Base", p.risk_free_rate, p.credit_spread),
+        ("Risk-free +100 bp", p.risk_free_rate + 0.01, p.credit_spread),
+        ("Spread +100 bp", p.risk_free_rate, p.credit_spread + 0.01),
+        ("Both +100 bp", p.risk_free_rate + 0.01, p.credit_spread + 0.01),
+        ("Spread -50 bp", p.risk_free_rate, max(0.0, p.credit_spread - 0.005)),
+    ]
+
+    result = []
+    for name, rf, spread in scenarios:
+        price = bond_price(
+            p.face_value,
+            p.coupon_rate,
+            p.maturity,
+            rf,
+            spread,
+        )
+        result.append((name, rf, spread, price))
+
+    return result
+
+
+# ============================================================
+# Plots
+# ============================================================
+
+def plot_results(p: BondParams) -> None:
+    base_yield = p.risk_free_rate + p.credit_spread
+
+    spreads = np.linspace(0.0, 0.08, 100)
+    prices = [
+        bond_price(
+            p.face_value,
+            p.coupon_rate,
+            p.maturity,
+            p.risk_free_rate,
+            spread,
+        )
+        for spread in spreads
+    ]
+
+    maturities_long = range(1, 31)
+    coupon_rates = [
+        max(0.0, p.coupon_rate - 0.01),
+        p.coupon_rate,
+        p.coupon_rate + 0.01,
+    ]
+
+    maturity_prices = []
+    for coupon_rate in coupon_rates:
+        maturity_prices.append([
+            bond_price(
+                p.face_value,
+                coupon_rate,
+                mat,
+                p.risk_free_rate,
+                p.credit_spread,
+            )
+            for mat in maturities_long
+        ])
+
+    market_prices = np.linspace(
+        max(1.0, 0.70 * p.face_value),
+        1.30 * p.face_value,
+        100,
+    )
+    implied_yields = [
+        yield_from_price(
+            market_price,
+            p.face_value,
+            p.coupon_rate,
+            p.maturity,
+        )
+        for market_price in market_prices
+    ]
+
+    maturities_sensitivity = range(1, 21)
+    dv01_values = [
+        dv01(
+            p.face_value,
+            p.coupon_rate,
+            maturity,
+            base_yield,
+        )
+        for maturity in maturities_sensitivity
+    ]
+
+    plt.figure(figsize=(10, 14))
+
+    plt.subplot(4, 1, 1)
+    plt.plot(spreads * 100, prices)
+    plt.xlabel("Credit spread [%]")
+    plt.ylabel("Bond price")
+    plt.title("Bond price vs credit spread")
+    plt.grid()
+
+    plt.subplot(4, 1, 2)
+    for coupon_rate, values in zip(coupon_rates, maturity_prices):
+        plt.plot(
+            maturities_long,
+            values,
+            label=f"Coupon {100 * coupon_rate:.1f}%",
+        )
+    plt.xlabel("Maturity [years]")
+    plt.ylabel("Bond price")
+    plt.title("Bond price vs maturity")
+    plt.legend()
+    plt.grid()
+
+    plt.subplot(4, 1, 3)
+    plt.plot(market_prices, np.array(implied_yields) * 100)
+    plt.axvline(p.market_price, linestyle="--", linewidth=1)
+    plt.xlabel("Market price")
+    plt.ylabel("Implied yield [%]")
+    plt.title("Implied yield vs market price")
+    plt.grid()
+
+    plt.subplot(4, 1, 4)
+    plt.plot(maturities_sensitivity, dv01_values)
+    plt.xlabel("Maturity [years]")
+    plt.ylabel("DV01")
+    plt.title("DV01 vs maturity")
+    plt.grid()
+
+    plt.subplots_adjust(hspace=0.8)
+    plt.show()
+
+
+# ============================================================
+# Main
+# ============================================================
+
+def main() -> None:
+    p = get_user_inputs()
+
+    base_yield = p.risk_free_rate + p.credit_spread
+    model_price = bond_price(
+        p.face_value,
+        p.coupon_rate,
+        p.maturity,
+        p.risk_free_rate,
+        p.credit_spread,
     )
 
-    return yield_rate
-
-
-# ============================================================
-# 1. Základní scénář
-# ============================================================
-
-price_base = bond_price(
-    FACE_VALUE,
-    COUPON_RATE,
-    MATURITY,
-    RISK_FREE_RATE,
-    CREDIT_SPREAD
-)
-
-print("Base bond price:", price_base)
-
-
-# ============================================================
-# 2. Jednoduché scénáře
-#
-# Porovnáváme:
-# - růst risk-free rate
-# - růst credit spreadu
-#
-# V obou případech roste požadovaný yield,
-# takže cena dluhopisu klesá.
-# ============================================================
-
-price_higher_rates = bond_price(
-    FACE_VALUE,
-    COUPON_RATE,
-    MATURITY,
-    0.04,
-    CREDIT_SPREAD
-)
-
-price_higher_spread = bond_price(
-    FACE_VALUE,
-    COUPON_RATE,
-    MATURITY,
-    RISK_FREE_RATE,
-    0.04
-)
-
-print("\nHigher risk-free rate:", price_higher_rates)
-print("Higher credit spread:", price_higher_spread)
-
-
-# ============================================================
-# 3. Spread sensitivity
-#
-# Odhadujeme změnu ceny při zvýšení credit spreadu o 1 bp.
-#
-# 1 bp = 0.0001
-#
-# Finite difference:
-#
-# dP/dSpread ≈ [P(spread + h) - P(spread)] / h
-# ============================================================
-
-ONE_BP = 0.0001
-
-price_spread_up = bond_price(
-    FACE_VALUE,
-    COUPON_RATE,
-    MATURITY,
-    RISK_FREE_RATE,
-    CREDIT_SPREAD + ONE_BP
-)
-
-spread_sensitivity = (
-    price_spread_up - price_base
-) / ONE_BP
-
-print("\nSpread sensitivity:")
-print(spread_sensitivity)
-
-
-# ============================================================
-# 4. Model price (PV) vs credit spread
-#
-# Risk-free rate držíme konstantní.
-# Vyšší credit spread -> vyšší yield -> nižší bond price.
-# ============================================================
-
-spreads = np.linspace(0.0, 0.08, 100)
-
-prices = []
-
-for spread in spreads:
-
-    price = bond_price(
-        FACE_VALUE,
-        COUPON_RATE,
-        MATURITY,
-        RISK_FREE_RATE,
-        spread
+    implied_yield = yield_from_price(
+        p.market_price,
+        p.face_value,
+        p.coupon_rate,
+        p.maturity,
     )
 
-    prices.append(price)
-
-
-# ============================================================
-# 5. Model price (PV) vs maturity
-#
-# POZOR:
-# Tento graf předpokládá konstantní yield pro všechny maturity.
-# Nejde tedy o reálnou yield curve.
-#
-# Při coupon rate = yield je bond přesně at par:
-#
-# price = face value
-#
-# pro každou maturity.
-# ============================================================
-
-maturities_long = range(1, 31)
-
-mprices1 = []
-mprices2 = []
-mprices3 = []
-
-for mat in maturities_long:
-
-    price1 = bond_price(
-        FACE_VALUE,
-        0.04,
-        mat,
-        RISK_FREE_RATE,
-        CREDIT_SPREAD
+    mac_dur = macaulay_duration(
+        p.face_value, p.coupon_rate, p.maturity, base_yield
+    )
+    mod_dur = modified_duration(
+        p.face_value, p.coupon_rate, p.maturity, base_yield
+    )
+    conv = convexity(
+        p.face_value, p.coupon_rate, p.maturity, base_yield
+    )
+    dv01_value = dv01(
+        p.face_value, p.coupon_rate, p.maturity, base_yield
+    )
+    cs01_value = cs01(
+        p.face_value,
+        p.coupon_rate,
+        p.maturity,
+        p.risk_free_rate,
+        p.credit_spread,
     )
 
-    price2 = bond_price(
-        FACE_VALUE,
-        0.05,
-        mat,
-        RISK_FREE_RATE,
-        CREDIT_SPREAD
+    delta_y = 0.01
+    exact_up_100 = bond_price_from_yield(
+        p.face_value,
+        p.coupon_rate,
+        p.maturity,
+        base_yield + delta_y,
+    )
+    exact_change = exact_up_100 - model_price
+    approx_change = duration_convexity_price_change(
+        model_price,
+        mod_dur,
+        conv,
+        delta_y,
     )
 
-    price3 = bond_price(
-        FACE_VALUE,
-        0.06,
-        mat,
-        RISK_FREE_RATE,
-        CREDIT_SPREAD
-    )
+    print("\n--- Corporate Bond Pricing and Risk Analytics ---")
+    print(f"Face value:             {p.face_value:.2f}")
+    print(f"Coupon rate:            {100 * p.coupon_rate:.2f} %")
+    print(f"Maturity:               {p.maturity} years")
+    print(f"Risk-free rate:         {100 * p.risk_free_rate:.2f} %")
+    print(f"Credit spread:          {100 * p.credit_spread:.2f} %")
+    print(f"Model yield:            {100 * base_yield:.2f} %")
+    print(f"Model bond price:       {model_price:.4f}")
+    print(f"Observed market price:  {p.market_price:.4f}")
+    print(f"Implied market yield:   {100 * implied_yield:.4f} %")
 
-    mprices1.append(price1)
-    mprices2.append(price2)
-    mprices3.append(price3)
+    print("\n--- Risk measures at model yield ---")
+    print(f"Macaulay duration:      {mac_dur:.4f} years")
+    print(f"Modified duration:      {mod_dur:.4f}")
+    print(f"Convexity:              {conv:.4f}")
+    print(f"DV01:                   {dv01_value:.6f}")
+    print(f"CS01:                   {cs01_value:.6f}")
 
-# ============================================================
-# 6. Implied yield z jedné zadané market price
-# ============================================================
+    print("\n--- +100 bp yield shock ---")
+    print(f"Exact price change:     {exact_change:.4f}")
+    print(f"Duration+convexity:     {approx_change:.4f}")
 
-market_price = 95.0
+    print("\n--- Scenario analysis ---")
+    print(f"{'Scenario':<22}{'Risk-free':>12}{'Spread':>12}{'Price':>12}")
+    for name, rf, spread, price in scenario_table(p):
+        print(
+            f"{name:<22}"
+            f"{100 * rf:>11.2f}%"
+            f"{100 * spread:>11.2f}%"
+            f"{price:>12.4f}"
+        )
 
-market_yield = yield_from_price(
-    market_price,
-    FACE_VALUE,
-    COUPON_RATE,
-    MATURITY
-)
-
-print("\nMarket price:", market_price)
-print("Implied yield:", market_yield)
-
-
-# ============================================================
-# 7. Numerická sensitivity ceny na yield
-#
-# Odhad:
-#
-# dP/dy ≈ [P(y + dy) - P(y)] / dy
-#
-# Jelikož vyšší yield snižuje cenu,
-# očekáváme zápornou hodnotu.
-# ============================================================
-
-dy = 0.0001
-
-price_y = bond_price_from_yield(
-    FACE_VALUE,
-    COUPON_RATE,
-    MATURITY,
-    market_yield
-)
-
-price_y_up = bond_price_from_yield(
-    FACE_VALUE,
-    COUPON_RATE,
-    MATURITY,
-    market_yield + dy
-)
-
-yield_sensitivity = (
-    price_y_up - price_y
-) / dy
-
-print("\nPrice sensitivity to yield:")
-print(yield_sensitivity)
+    plot_results(p)
 
 
-# ============================================================
-# 8. Implied yield vs hypothetical market price
-#
-# Pro různé market prices numericky dopočítáme yield.
-#
-# Vyšší market price -> nižší implied yield.
-# ============================================================
-
-market_prices = np.linspace(70, 130, 100)
-implied_yields = []
-
-for market_price in market_prices:
-
-    y = yield_from_price(
-        market_price,
-        FACE_VALUE,
-        COUPON_RATE,
-        MATURITY
-    )
-
-    implied_yields.append(y)
-
-
-# ============================================================
-# 9. DV01 vs maturity
-#
-# Pro každou maturity spočítáme numericky dP/dy.
-#
-# Při delší maturity je cena obecně citlivější
-# na změnu yieldu, protože vzdálenější cash flows
-# jsou silněji ovlivněny diskontní sazbou.
-#
-# Opět předpokládáme konstantní yield,
-# nikoli plnou term structure.
-# ============================================================
-
-maturities_sensitivity = range(1, 21)
-yield_sensitivities = []
-
-base_yield = RISK_FREE_RATE + CREDIT_SPREAD
-
-for maturity in maturities_sensitivity:
-
-    price_y = bond_price_from_yield(
-        FACE_VALUE,
-        COUPON_RATE,
-        maturity,
-        base_yield
-    )
-
-    price_y_up = bond_price_from_yield(
-        FACE_VALUE,
-        COUPON_RATE,
-        maturity,
-        base_yield + dy
-    )
-
-    sensitivity = (price_y_up - price_y) / dy
-
-    dv01 = -sensitivity * 0.0001
-
-    yield_sensitivities.append(dv01)
-
-
-# ============================================================
-# Grafy
-# ============================================================
-
-plt.figure(figsize=(10, 14))
-
-# 1. Model price (PV) vs credit spread
-plt.subplot(4, 1, 1)
-
-plt.plot(
-    spreads * 100,
-    prices
-)
-
-plt.xlabel("Credit spread [%]")
-plt.ylabel("Model price (PV)")
-plt.title("Model price (PV) vs credit spread")
-plt.grid()
-
-
-# 2. Model price (PV) vs maturity
-plt.subplot(4, 1, 2)
-
-plt.plot(
-    maturities_long,
-    mprices1,
-    label="Coupon 4%"
-)
-
-plt.plot(
-    maturities_long,
-    mprices2,
-    label="Coupon 5%"
-)
-
-plt.plot(
-    maturities_long,
-    mprices3,
-    label="Coupon 6%"
-)
-
-plt.xlabel("Maturity [years]")
-plt.ylabel("Model price (PV)")
-plt.title("Model price (PV) vs maturity")
-plt.legend()
-plt.grid()
-
-
-# 3. Implied yield vs hypothetical market price
-plt.subplot(4, 1, 3)
-
-plt.plot(
-    market_prices,
-    np.array(implied_yields) * 100
-)
-
-plt.xlabel("Hypothetical market price")
-plt.ylabel("Implied yield [%]")
-plt.title("Implied yield vs hypothetical market price")
-plt.grid()
-
-
-# 4. DV01 vs maturity
-plt.subplot(4, 1, 4)
-
-plt.plot(
-    maturities_sensitivity,
-    yield_sensitivities
-)
-
-plt.xlabel("Maturity [years]")
-plt.ylabel("DV01")
-plt.title("DV01 vs maturity")
-plt.grid()
-
-
-plt.subplots_adjust(hspace=0.8)
-plt.show()
-
-
-
+if __name__ == "__main__":
+    main()

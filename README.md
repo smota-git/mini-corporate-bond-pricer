@@ -1,261 +1,314 @@
-# Mini Corporate Bond Pricer (Bond Pricing, Yield and Sensitivities)
+# Corporate Bond Pricing and Risk Analytics
 
-A compact Python project illustrating the basic mechanics of fixed-income pricing and credit-risk-sensitive bond valuation.
+A compact Python project for exploring fixed-rate corporate bond pricing, implied yield, interest-rate sensitivity and credit-spread sensitivity.
 
-The model uses a simple fixed-rate coupon bond and connects:
+The model connects contractual cash flows, present-value discounting, risk-free rate and credit spread, market price and implied yield, DV01, modified duration, convexity, Macaulay duration and scenario analysis.
 
-- contractual cash flows,
-- present-value discounting,
-- risk-free rate,
-- credit spread,
-- yield,
-- market price,
-- implied yield,
-- numerical root finding,
-- and DV01.
+The model is intentionally simplified so that these relationships remain transparent.
 
-The project is intentionally simplified so that the relationships between these quantities remain transparent.
+## 1. Model and inputs
 
-## Model setup
+The bond is described by:
 
-The bond is defined by:
+- **face value** `F`,
+- **coupon rate** `c`,
+- **maturity** `T`,
+- **risk-free rate** `r_f`,
+- **credit spread** `s`,
+- **market price** `P_market`.
 
-- **face value** $F$ — principal repaid at maturity,
-- **coupon rate** $c$,
-- **maturity** $T$,
-- **risk-free rate** $r_f$,
-- **credit spread** $s$.
+The annual coupon is:
 
-The annual coupon is
+$$C = c \cdot F$$
 
-$$C = c \cdot F.$$
+The simplified model yield is:
 
-In this simplified model, the discount yield is
+$$y = r_f + s$$
 
-$$y = r_f + s.$$
+The model assumes annual coupons and one flat yield for all cash flows.
 
-The bond's calculated model price is the present value of all contractual future cash flows:
+At startup, the user can either keep the default parameters or enter custom values. Pressing Enter at an individual prompt keeps the displayed default.
 
-$$P_{model} = \sum_{t=1}^{T-1} \frac{C}{(1+y)^t} + \frac{C+F}{(1+y)^T}.$$
+Default values:
 
-The project assumes annual coupons, a constant risk-free rate, a constant credit spread and a flat yield across maturities. It therefore does **not** represent a full market yield curve or term structure.
-
-## Terminology
-
-The distinction between the following quantities is important.
-
-### Face value
-
-The **face value** (or par value) is the principal amount repaid by the issuer at maturity.
-
-It is not the same thing as the bond's current price.
-
-### Model price / present value
-
-The **model price** is the present value of the bond's future contractual cash flows discounted at the selected yield.
-
-In this project:
-
-$$P_{model} = PV(\text{future cash flows}).$$
-
-The terms **model price**, **calculated bond price** and **present value (PV)** therefore refer to the same quantity.
-
-### Market price
-
-The **market price** is treated as an externally observed or hypothetically specified price.
-
-It is an input to the inverse pricing problem and does not have to equal the model price calculated from the initially assumed yield.
-
-### Model yield
-
-The model yield is defined here as
-
-$$y = r_f + s.$$
-
-This is a deliberate simplification.
-
-### Implied yield
-
-The **implied yield** is the yield that makes the present value of the contractual cash flows equal to a specified market price:
-
-$$P_{model}(y) = P_{market}.$$
-
-For a coupon bond, this yield is generally solved numerically. The script uses Brent's root-finding method.
-
-## Main calculations
-
-### Base bond price
-
-The function `bond_price()` calculates the model price from:
-
-- face value,
-- coupon rate,
-- maturity,
-- risk-free rate,
-- credit spread.
-
-Because the model uses
-
-$$y = r_f + s,$$
-
-an increase in either the risk-free rate or the credit spread increases the required yield and reduces the present value of the same future cash flows.
-
-### Implied yield from market price
-
-The function `yield_from_price()` solves
-
-$$P_{model}(y) - P_{market} = 0.$$
-
-The numerical solution is obtained using `scipy.optimize.brentq`.
-
-This is the inverse of the usual pricing problem:
-
-- **pricing problem:** yield → price,
-- **inverse pricing problem:** market price → implied yield.
-
-### Yield sensitivity and DV01
-
-The script estimates price sensitivity numerically using a small yield increase:
-
-$$\frac{\partial P}{\partial y} \approx \frac{P(y+\Delta y)-P(y)}{\Delta y}.$$
-
-For
-
-$$\Delta y = 1\text{ bp} = 0.0001,$$
-
-the script converts this sensitivity into DV01:
-
-$$DV01 \approx - \frac{\partial P}{\partial y} \times 0.0001.$$
-
-DV01 therefore represents the approximate **absolute change in bond price caused by a 1 basis point increase in yield**.
-
-## Figures
-
-The four figures deliberately show different relationships. In each case, it is useful to distinguish which quantity is varied, which quantity is calculated, and which quantities are held constant.
-
-### 1. Model price (PV) vs credit spread
-
-**x-axis:** credit spread  
-**y-axis:** model price / present value
-
-The risk-free rate, coupon rate, face value and maturity are held constant.
-
-Only the credit spread changes.
-
-Because
-
-$$y = r_f + s,$$
-
-a wider spread increases the discount yield and lowers the present value of the same contractual cash flows:
-
-$$s \uparrow \Rightarrow y \uparrow \Rightarrow P_{model} \downarrow.$$
-
-This figure therefore shows the sensitivity of the calculated bond value to credit-spread changes.
-
-It is **not** a generic yield-vs-price plot, even though yield changes indirectly because spread is one component of the model yield.
-
-### 2. Model price (PV) vs maturity
-
-**x-axis:** maturity  
-**y-axis:** model price / present value
-
-The graph compares three separate coupon-rate scenarios:
-
-- 4% coupon,
-- 5% coupon,
-- 6% coupon.
-
-The model yield is held constant at
-
-```math
-3\% + 2\% = 5\%.
+```text
+Face value:       100
+Coupon rate:        5 %
+Maturity:            5 years
+Risk-free rate:      3 %
+Credit spread:       2 %
+Market price:       95
 ```
 
-This gives three characteristic cases:
+## 2. Pricing, present value and implied yield
 
-- if coupon rate < yield, the bond trades below par,
-- if coupon rate = yield, the bond is at par,
-- if coupon rate > yield, the bond trades above par.
+For a fixed-rate bond, the investor receives a coupon in every year and the face value at maturity.
 
-As maturity increases, the effect becomes more pronounced.
+For example:
 
-The graph therefore does **not** show coupon rate as a function of maturity. It shows **bond price as a function of maturity for three fixed coupon-rate scenarios**.
+```text
+Face value = 100
+Coupon rate = 5 %
+Maturity = 5 years
+```
 
-It also does not represent a real yield curve, because the same yield is assumed for all maturities.
+produces the contractual cash flows:
 
-### 3. Implied yield vs hypothetical market price
+```text
+5, 5, 5, 5, 105
+```
+
+The **model price** is the present value of these cash flows:
+
+$$P_{model} = \sum_{t=1}^{T} \frac{CF_t}{(1+y)^t}$$
+
+In this project, **model price**, **calculated bond price** and **present value (PV)** refer to the same calculated quantity.
+
+The **market price** is different: it is an externally supplied or hypothetical observed price.
+
+The model can therefore be used in two directions:
+
+```text
+yield -> model price
+market price -> implied yield
+```
+
+The implied yield is the yield that satisfies:
+
+$$P_{model}(y) = P_{market}$$
+
+or equivalently:
+
+$$P_{model}(y) - P_{market} = 0$$
+
+The script solves this numerically using Brent's method from `scipy.optimize.brentq`.
+
+## 3. Risk measures: practical hierarchy and meaning
+
+The risk measures in the script are related, but they do not have equal practical importance.
+
+A useful hierarchy is:
+
+1. **DV01** — direct absolute price sensitivity to a 1 bp yield move.
+2. **Modified duration** — relative first-order sensitivity of price to yield.
+3. **Convexity** — second-order correction describing curvature of the price-yield relationship.
+4. **Macaulay duration** — present-value-weighted timing of cash flows; historically the original duration concept and the basis from which modified duration is obtained.
+
+### DV01
+
+DV01 measures the approximate absolute price change caused by a 1 basis point increase in yield.
+
+One basis point is:
+
+$$1\text{ bp} = 0.0001$$
+
+Using modified duration:
+
+$$DV01 \approx P \cdot D_{mod} \cdot 0.0001$$
+
+The script reports DV01 in **price units**, not in percent.
+
+For a bond priced around 100, a DV01 of `0.05` means that a +1 bp increase in yield changes the price by approximately `0.05` price units.
+
+DV01 could also be obtained directly by bumping the yield by 1 bp and repricing the bond. The duration formula is a local analytical approximation of the same sensitivity.
+
+### Modified duration
+
+Modified duration is the relative first-order sensitivity of price to yield:
+
+$$D_{mod} = -\frac{1}{P}\frac{dP}{dy}$$
+
+For annual compounding it is related to Macaulay duration by:
+
+$$D_{mod} = \frac{D_{Mac}}{1+y}$$
+
+For a small yield move:
+
+$$\frac{\Delta P}{P} \approx -D_{mod}\Delta y$$
+
+So modified duration is best read as a **percentage price-sensitivity measure**, not as an intuitive time measure.
+
+Example:
+
+```text
+Modified duration = 8.8
+Yield change       = +1.0 percentage point
+```
+
+gives approximately:
+
+```text
+Relative price change ≈ -8.8 %
+```
+
+### Convexity
+
+Duration gives only the local slope of the price-yield curve. Bond price is not linear in yield, so larger yield moves require a curvature correction.
+
+Convexity measures the second-order curvature:
+
+$$Convexity = \frac{1}{P}\frac{d^2P}{dy^2}$$
+
+For annual discrete compounding:
+
+$$Convexity = \frac{1}{P}\sum_{t=1}^{T}\frac{CF_t \cdot t(t+1)}{(1+y)^{t+2}}$$
+
+The duration-plus-convexity approximation is:
+
+$$\frac{\Delta P}{P} \approx -D_{mod}\Delta y + \frac{1}{2}Convexity(\Delta y)^2$$
+
+This improves the linear duration approximation when the yield move is not extremely small.
+
+### Macaulay duration
+
+Macaulay duration is:
+
+$$D_{Mac} = \frac{\sum_{t=1}^{T} t \cdot PV(CF_t)}{P}$$
+
+It is the **present-value-weighted average time of the bond's cash flows** — effectively a time center of gravity of the discounted payments.
+
+Historically, this was the original duration concept: a better description of the economic "length" of a coupon bond than maturity alone.
+
+A coupon bond with maturity 15 years can therefore have Macaulay duration well below 15 years because part of its present value is received earlier through coupons.
+
+For a zero-coupon bond:
+
+$$D_{Mac} = T$$
+
+In this project, Macaulay duration is mainly important for two reasons:
+
+- it explains the timing structure behind interest-rate sensitivity,
+- and it provides the starting point for modified duration.
+
+It is less direct as a practical risk measure than DV01 or modified duration, but it remains useful conceptually and in applications such as duration matching / immunization.
+
+## 4. Credit-spread sensitivity: CS01
+
+CS01 measures the price effect of a 1 bp widening of the credit spread.
+
+The script calculates it by direct repricing:
+
+$$CS01 = P(s) - P(s + 0.0001)$$
+
+Like DV01, CS01 is expressed in **price units**, not in percent.
+
+Because this simplified model assumes:
+
+$$y = r_f + s$$
+
+a +1 bp move in total yield and a +1 bp move in credit spread have almost the same effect on price. Therefore DV01 and CS01 are very close in this version.
+
+This is a feature of the simplified model, not a general property of real corporate bonds.
+
+## 5. Exact repricing, approximation and scenario analysis
+
+The script compares a full +100 bp repricing with the second-order duration-plus-convexity approximation.
+
+For example:
+
+```text
+Exact price change:     -5.1148
+Duration+convexity:     -5.0995
+```
+
+For one simple bond, exact repricing is trivial. The approximation is useful because the same idea scales to larger portfolios and many risk scenarios, where repeated full repricing can become more expensive.
+
+The script also evaluates:
+
+```text
+Base
+Risk-free +100 bp
+Spread +100 bp
+Both +100 bp
+Spread -50 bp
+```
+
+and prints the resulting model price for each scenario.
+
+Because the current model uses:
+
+$$y = r_f + s$$
+
+the scenarios `Risk-free +100 bp` and `Spread +100 bp` produce the same model price when everything else is unchanged.
+
+## 6. Figures
+
+The script creates four diagnostic plots.
+
+### Model price vs credit spread
+
+**x-axis:** credit spread  
+**y-axis:** model bond price
+
+The risk-free rate, coupon rate, face value and maturity are fixed.
+
+A wider spread increases the model yield and lowers present value:
+
+$$s \uparrow \Rightarrow y \uparrow \Rightarrow P_{model} \downarrow$$
+
+### Model price vs maturity
+
+**x-axis:** maturity  
+**y-axis:** model bond price
+
+The graph compares three coupon-rate scenarios:
+
+```text
+selected coupon rate - 1 percentage point
+selected coupon rate
+selected coupon rate + 1 percentage point
+```
+
+The model yield is held fixed.
+
+This graph shows **price as a function of maturity for three fixed coupon-rate scenarios**. It is not a yield curve.
+
+### Implied yield vs hypothetical market price
 
 **x-axis:** hypothetical market price  
 **y-axis:** implied yield
 
-The bond itself is kept fixed:
+Face value, coupon rate and maturity are fixed.
 
-- same face value,
-- same coupon rate,
-- same maturity.
+For each hypothetical market price, the script solves:
 
-The script then considers a range of hypothetical market prices and solves a separate inverse pricing problem for each price:
+$$P_{model}(y) = P_{market}$$
 
-$$P_{model}(y) = P_{market}.$$
+A higher market price for the same contractual cash flows implies a lower yield.
 
-The resulting curve shows that a higher market price for the same contractual cash flows implies a lower yield.
+The vertical dashed line marks the market price entered by the user.
 
-This figure should therefore be read as
-
-$$P_{market} \longrightarrow y_{implied},$$
-
-not as a direct model of how market prices are formed.
-
-### 4. DV01 vs maturity
+### DV01 vs maturity
 
 **x-axis:** maturity  
 **y-axis:** DV01
 
-For each maturity from 1 to 20 years, the script creates a bond with the same face value, coupon rate and base yield and calculates its DV01.
+For maturities from 1 to 20 years, the script calculates DV01 using the selected face value, coupon rate and base yield.
 
-The graph therefore shows
+The graph shows how 1 bp yield sensitivity changes with maturity.
 
-$$T \longrightarrow DV01.$$
+## 7. Assumptions and limitations
 
-Longer-maturity bonds are generally more sensitive to small yield changes because a larger share of their cash flows lies further in the future.
+The model deliberately assumes:
 
-The figure is not the price change of one single bond over time. It compares the 1 bp yield sensitivity of otherwise similar bonds with different maturities.
+- annual coupons,
+- constant risk-free rate,
+- constant credit spread,
+- one flat yield for all maturities,
+- no explicit yield curve,
+- no default probability,
+- no recovery rate,
+- no survival probabilities,
+- no liquidity premium,
+- no stochastic interest-rate model.
 
-## Interpretation of price, yield and risk
+The credit spread therefore acts only as an additive component of the discount yield.
 
-A lower bond price implies a higher yield **for the same contractual cash flows**.
+A natural next extension would be an explicit default/recovery model based on survival probabilities or hazard rates.
 
-In a real corporate-bond market, a lower price and higher yield may arise because:
+## 8. Requirements and run
 
-- general risk-free interest rates have risen,
-- the issuer's credit spread has widened,
-- or both.
-
-The current model keeps these effects simple and transparent by representing yield as the sum of a risk-free rate and a credit spread.
-
-The model does **not** yet explicitly model:
-
-- default probability,
-- recovery rate,
-- survival probabilities,
-- a full yield curve,
-- liquidity effects,
-- stochastic interest rates.
-
-These are natural extensions for a more advanced version of the project.
-
-## Project structure
-
-`bond.py` contains:
-
-- bond pricing from discounted cash flows,
-- scenario calculations,
-- implied-yield estimation using Brent's method,
-- finite-difference yield sensitivity,
-- DV01 calculation,
-- and four diagnostic plots.
-
-## Requirements
+Requirements:
 
 ```text
 numpy
@@ -263,17 +316,31 @@ matplotlib
 scipy
 ```
 
-## How to run
+Install with:
 
 ```bash
 pip install numpy matplotlib scipy
-python bond.py
 ```
 
-## Summary
+Run:
 
-The project connects the following concepts in one workflow:
+```bash
+python corporate_bond_pricer_v2.py
+```
 
-$$\text{cash flows} \rightarrow \text{discounting} \rightarrow \text{model yield} \rightarrow \text{present value} \rightarrow \text{market price} \rightarrow \text{implied yield} \rightarrow \text{sensitivity / DV01}.$$
+The conceptual flow is:
 
-The main purpose is not to reproduce a production-grade fixed-income system, but to make the relationships between price, yield, spread and sensitivity explicit and numerically testable.
+```text
+contractual cash flows
+-> model yield
+-> present value / model price
+-> market price
+-> implied yield
+-> DV01 / modified duration
+-> convexity
+-> Macaulay duration
+-> CS01
+-> scenario analysis
+```
+
+The main goal is to make the relationship between bond valuation and local risk measures explicit while keeping the model simple enough to inspect and understand.
